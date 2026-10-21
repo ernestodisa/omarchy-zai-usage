@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "id": "ernestodisa.zai-usage",
+  "name": "Z.AI Usage",
+  "version": "1.0.0",
+  "author": "ernestodisa",
+  "license": "MIT",
+  "description": "Z.AI coding-plan quota windows from the omp CLI plus an estimated per-agent usage split (omp/hermes/opencode) in the bar.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "UsageWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Z.AI Coding Plan Usage",
+    "description": "Coding-plan quota windows + estimated per-agent usage split",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "intervalSec": 300,
+      "warnAtPercent": 70,
+      "critAtPercent": 90
+    },
+    "schema": [
+      {
+        "key": "intervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 30,
+        "max": 3600,
+        "step": 30,
+        "defaultValue": 300
+      },
+      {
+        "key": "warnAtPercent",
+        "type": "integer",
+        "label": "Warn color at usage (%)",
+        "min": 1,
+        "max": 100,
+        "step": 1,
+        "defaultValue": 70
+      },
+      {
+        "key": "critAtPercent",
+        "type": "integer",
+        "label": "Critical color at usage (%)",
+        "min": 1,
+        "max": 100,
+        "step": 1,
+        "defaultValue": 90
+      }
+    ]
+  }
+}
