@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "ernestodisa.zai-usage",
   "name": "Z.AI Usage",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "ernestodisa",
   "license": "MIT",
-  "description": "Z.AI coding-plan quota windows from the omp CLI plus an estimated per-agent usage split (omp/hermes/opencode/zcode) in the bar.",
+  "description": "Z.AI coding-plan quota windows from the omp CLI plus an estimated per-agent usage split (omp/hermes/opencode/zcode/claude-code/pi/kilo-code) in the bar.",
   "kinds": ["bar-widget"],
   "entryPoints": {
     "barWidget": "UsageWidget.qml"

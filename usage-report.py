@@ -15,6 +15,9 @@ Sources:
   hermes    ~/.hermes/state.db  -> session_model_usage (billing zai / api.z.ai)
   opencode  ~/.local/share/opencode/opencode.db -> message data tokens (zai*)
   zcode     ~/.zcode/cli/db/db.sqlite -> model_usage rows (account:zai* providers)
+  claude    ~/.claude/projects/**/*.jsonl -> assistant usage (provider unknown: estimate)
+  pi        ~/.pi/agent/sessions/**/*.jsonl -> assistant usage (zai/zhipu providers)
+  kilo      ~/.local/share/kilo/kilo.db -> message tokens (zai provider or unknown)
 
 Output: single JSON object on stdout:
   {"ok": true, "plan": "lite", "windows": [...],
@@ -30,13 +33,28 @@ import sqlite3
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 
 HOME = os.path.expanduser("~")
 OMP_SESSIONS = os.path.join(HOME, ".omp", "agent", "sessions")
 HERMES_DB = os.path.join(HOME, ".hermes", "state.db")
 OPENCODE_DB = os.path.join(HOME, ".local", "share", "opencode", "opencode.db")
 ZCODE_DB = os.path.join(HOME, ".zcode", "cli", "db", "db.sqlite")
+CLAUDE_DIR = os.path.join(HOME, ".claude", "projects")
+PI_DIR = os.path.join(HOME, ".pi", "agent", "sessions")
+KILO_DB = os.path.join(HOME, ".local", "share", "kilo", "kilo.db")
 FETCH_TIMEOUT = 20  # seconds, matches the omp usage-status plugin
+
+
+def iso_to_ms(value):
+    """ISO-8601 string -> epoch milliseconds, or None."""
+    try:
+        t = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        return t.timestamp() * 1000.0
+    except (ValueError, TypeError, OverflowError):
+        return None
 
 
 def fetch_quota() -> dict:
@@ -181,12 +199,143 @@ def zcode_agent_usage(since_ms: float):
     return (tokens, requests) if requests else None
 
 
+def claude_code_agent_usage(since_ms: float):
+    """Tokens from Claude Code session JSONLs (~/.claude/projects/**/*.jsonl).
+
+    Claude Code records usage but not the provider, so every assistant
+    message counts — an estimate that is only accurate when Claude Code is
+    pointed at Z.ai (its common coding-plan setup).
+    """
+    if not os.path.isdir(CLAUDE_DIR):
+        return None
+    tokens = requests = 0
+    for dirpath, _dirs, files in os.walk(CLAUDE_DIR):
+        for name in files:
+            if not name.endswith(".jsonl"):
+                continue
+            path = os.path.join(dirpath, name)
+            try:
+                if os.stat(path).st_mtime * 1000 < since_ms:
+                    continue  # untouched since the window started
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    for line in fh:
+                        if '"assistant"' not in line or '"usage"' not in line:
+                            continue  # cheap prefilter before JSON.parse
+                        try:
+                            entry = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if entry.get("type") != "assistant":
+                            continue
+                        usage = (entry.get("message") or {}).get("usage")
+                        if not isinstance(usage, dict):
+                            continue
+                        ms = iso_to_ms(entry.get("timestamp") or "")
+                        if ms is None or ms < since_ms:
+                            continue
+                        tokens += (int(usage.get("input_tokens") or 0)
+                                   + int(usage.get("output_tokens") or 0)
+                                   + int(usage.get("cache_creation_input_tokens") or 0)
+                                   + int(usage.get("cache_read_input_tokens") or 0))
+                        requests += 1
+            except OSError:
+                continue
+    return (tokens, requests) if requests else None
+
+
+def pi_agent_usage(since_ms: float):
+    """Tokens from pi session JSONLs (~/.pi/agent/sessions/**/*.jsonl).
+
+    pi records the provider per assistant message; only zai/zhipu providers
+    count toward the plan. Usage fields are models.dev style
+    (input/output/cacheRead/cacheWrite, disjoint).
+    """
+    if not os.path.isdir(PI_DIR):
+        return None
+    tokens = requests = 0
+    for dirpath, _dirs, files in os.walk(PI_DIR):
+        for name in files:
+            if not name.endswith(".jsonl"):
+                continue
+            path = os.path.join(dirpath, name)
+            try:
+                if os.stat(path).st_mtime * 1000 < since_ms:
+                    continue
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    for line in fh:
+                        if '"assistant"' not in line or '"usage"' not in line:
+                            continue
+                        try:
+                            entry = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        msg = entry.get("message") or {}
+                        usage = msg.get("usage")
+                        if msg.get("role") != "assistant" or not isinstance(usage, dict):
+                            continue
+                        provider = str(msg.get("provider") or "").lower()
+                        if not (provider.startswith("zai") or provider.startswith("zhipu")):
+                            continue
+                        ts = msg.get("timestamp")
+                        if not isinstance(ts, (int, float)):
+                            ts = iso_to_ms(entry.get("timestamp") or "")
+                        if not isinstance(ts, (int, float)) or ts < since_ms:
+                            continue
+                        tokens += (int(usage.get("input") or 0)
+                                   + int(usage.get("output") or 0)
+                                   + int(usage.get("cacheRead") or 0)
+                                   + int(usage.get("cacheWrite") or 0))
+                        requests += 1
+            except OSError:
+                continue
+    return (tokens, requests) if requests else None
+
+
+def kilo_agent_usage(since_ms: float):
+    """Tokens from Kilo Code's local DB (~/.local/share/kilo/kilo.db).
+
+    Kilo (opencode lineage) stores message rows as JSON in a `message` table.
+    Rows that record no provider still count — same estimate caveat as the
+    Claude Code reader.
+    """
+    if not os.path.exists(KILO_DB):
+        return None
+    try:
+        con = sqlite3.connect(f"file:{KILO_DB}?mode=ro", uri=True, timeout=2)
+        try:
+            row = con.execute(
+                """
+                SELECT COALESCE(SUM(json_extract(data,'$.tokens.input')
+                                      +json_extract(data,'$.tokens.output')
+                                      +COALESCE(json_extract(data,'$.tokens.reasoning'),0)
+                                      +COALESCE(json_extract(data,'$.tokens.cache.read'),0)
+                                      +COALESCE(json_extract(data,'$.tokens.cache.write'),0)), 0),
+                       COUNT(json_extract(data,'$.tokens'))
+                FROM message
+                WHERE json_extract(data,'$.role') = 'assistant'
+                  AND time_created >= ?
+                  AND (json_extract(data,'$.providerID') LIKE 'zai%'
+                       OR json_extract(data,'$.providerID') IS NULL)
+                """,
+                (since_ms,),
+            ).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+    tokens, requests = int(row[0] or 0), int(row[1] or 0)
+    return (tokens, requests) if requests else None
+
+
 def agent_split(since_ms: float) -> list:
     readers = (
         ("omp", omp_agent_usage),
         ("hermes", hermes_agent_usage),
         ("opencode", opencode_agent_usage),
         ("zcode", zcode_agent_usage),
+        ("claude-code", claude_code_agent_usage),
+        ("pi", pi_agent_usage),
+        ("kilo-code", kilo_agent_usage),
     )
     agents = []
     for name, read in readers:
