@@ -14,6 +14,7 @@ Sources:
             ~/.omp/stats.db lags sessions by days in current omp builds.
   hermes    ~/.hermes/state.db  -> session_model_usage (billing zai / api.z.ai)
   opencode  ~/.local/share/opencode/opencode.db -> message data tokens (zai*)
+  zcode     ~/.zcode/cli/db/db.sqlite -> model_usage rows (account:zai* providers)
 
 Output: single JSON object on stdout:
   {"ok": true, "plan": "lite", "windows": [...],
@@ -34,6 +35,7 @@ HOME = os.path.expanduser("~")
 OMP_SESSIONS = os.path.join(HOME, ".omp", "agent", "sessions")
 HERMES_DB = os.path.join(HOME, ".hermes", "state.db")
 OPENCODE_DB = os.path.join(HOME, ".local", "share", "opencode", "opencode.db")
+ZCODE_DB = os.path.join(HOME, ".zcode", "cli", "db", "db.sqlite")
 FETCH_TIMEOUT = 20  # seconds, matches the omp usage-status plugin
 
 
@@ -148,11 +150,43 @@ def opencode_agent_usage(since_ms: float):
     return (tokens, requests) if requests else None
 
 
+def zcode_agent_usage(since_ms: float):
+    """Model requests from zcode (Z.ai's official CLI), ~/.zcode/cli/db/db.sqlite.
+
+    One model_usage row is one model request. zcode's input_tokens already
+    includes cached input (the provider reports inputTokens inclusive of
+    cacheRead), so cache columns are deliberately NOT added — they would
+    double-count.
+    """
+    if not os.path.exists(ZCODE_DB):
+        return None
+    try:
+        con = sqlite3.connect(f"file:{ZCODE_DB}?mode=ro", uri=True, timeout=2)
+        try:
+            row = con.execute(
+                """
+                SELECT COALESCE(SUM(input_tokens+output_tokens+reasoning_tokens), 0),
+                       COUNT(*)
+                FROM model_usage
+                WHERE provider_id LIKE 'account:zai%'
+                  AND started_at >= ?
+                """,
+                (since_ms,),
+            ).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+    tokens, requests = int(row[0] or 0), int(row[1] or 0)
+    return (tokens, requests) if requests else None
+
+
 def agent_split(since_ms: float) -> list:
     readers = (
         ("omp", omp_agent_usage),
         ("hermes", hermes_agent_usage),
         ("opencode", opencode_agent_usage),
+        ("zcode", zcode_agent_usage),
     )
     agents = []
     for name, read in readers:

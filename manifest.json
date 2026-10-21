@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "author": "ernestodisa",
   "license": "MIT",
-  "description": "Z.AI coding-plan quota windows from the omp CLI plus an estimated per-agent usage split (omp/hermes/opencode) in the bar.",
+  "description": "Z.AI coding-plan quota windows from the omp CLI plus an estimated per-agent usage split (omp/hermes/opencode/zcode) in the bar.",
   "kinds": ["bar-widget"],
   "entryPoints": {
     "barWidget": "UsageWidget.qml"

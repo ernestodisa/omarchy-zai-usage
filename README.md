@@ -1,7 +1,7 @@
 # Z.AI Usage — Omarchy bar widget
 
 Z.AI coding-plan quota in the Omarchy bar, with an **estimated per-agent
-split** (omp / hermes / opencode) inside the nearest-resetting quota window.
+split** (omp / hermes / opencode / zcode) inside the nearest-resetting quota window.
 English below · Español al final.
 
 Click the icon for a panel: per-window progress bars (5h / weekly), reset
@@ -34,7 +34,10 @@ omarchy plugin remove ernestodisa.zai-usage
 - Optional, for the per-agent split only: local records of
   [omp](https://github.com/) (`~/.omp/agent/sessions/`),
   Hermes (`~/.hermes/state.db`), OpenCode
-  (`~/.local/share/opencode/opencode.db`). Missing sources are skipped.
+  (`~/.local/share/opencode/opencode.db`) and zcode, Z.ai's official CLI
+  (`~/.zcode/cli/db/db.sqlite`). Missing sources are skipped. zcode's input
+  count already includes cached tokens as Z.ai reports it, so its figure is
+  the closest to what the plan actually bills.
 - `python3` (standard library only). No network calls from the plugin itself;
   no API key is read or stored by the widget — omp holds the credentials.
 
@@ -67,7 +70,7 @@ MIT — see [LICENSE](LICENSE).
 # Z.AI Usage — widget de la barra Omarchy (español)
 
 Cuota del coding plan de Z.AI en la barra de Omarchy, con **split estimado por
-agente** (omp / hermes / opencode) dentro de la ventana que reinicia primero.
+agente** (omp / hermes / opencode / zcode) dentro de la ventana que reinicia primero.
 
 Clic en el ícono para el panel: barras de progreso por ventana (5h / semanal),
 cuenta regresiva de reinicio, estimaciones de tokens/peticiones por agente y
@@ -95,8 +98,11 @@ omarchy plugin remove ernestodisa.zai-usage
 - **CLI `omp`** (dependencia dura) con un coding plan de Z.AI configurado:
   las ventanas vienen de `omp usage --json`. Sin él, el widget marca error.
 - Opcional (solo para el split): registros locales de omp
-  (`~/.omp/agent/sessions/`), Hermes (`~/.hermes/state.db`) y OpenCode
-  (`~/.local/share/opencode/opencode.db`). Las fuentes ausentes se omiten.
+  (`~/.omp/agent/sessions/`), Hermes (`~/.hermes/state.db`), OpenCode
+  (`~/.local/share/opencode/opencode.db`) y zcode, el CLI oficial de Z.ai
+  (`~/.zcode/cli/db/db.sqlite`). Las fuentes ausentes se omiten. El conteo de
+  zcode ya incluye tokens de cache como los reporta Z.ai, así que es la cifra
+  más cercana a lo que el plan cobra de verdad.
 - `python3` (solo librería estándar). El plugin no hace llamadas de red ni
   lee llaves: las credenciales las guarda omp.
 
