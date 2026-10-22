@@ -45,6 +45,13 @@ PI_DIR = os.path.join(HOME, ".pi", "agent", "sessions")
 KILO_DB = os.path.join(HOME, ".local", "share", "kilo", "kilo.db")
 FETCH_TIMEOUT = 20  # seconds, matches the omp usage-status plugin
 
+# Per-poll samples of the quota window + agent split, for the panel history.
+STATE_DIR = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.join(HOME, ".local", "state"),
+                         "ernestodisa.zai-usage")
+HISTORY_FILE = os.path.join(STATE_DIR, "history.jsonl")
+HISTORY_MAX_AGE_MS = 8 * 24 * 3600 * 1000.0  # keep 8 days of samples
+HISTORY_MAX_POINTS = 64                      # cap sent to the panel
+
 
 def iso_to_ms(value):
     """ISO-8601 string -> epoch milliseconds, or None."""
@@ -373,7 +380,7 @@ def quota_windows(quota: dict, now_ms: float) -> list:
 
 
 def nearest_window(quota: dict, now_ms: float):
-    """Window with the nearest reset that has already started, with its start."""
+    """Window with the nearest reset that has already started: id, reset, start, fraction."""
     best = None
     for report in quota.get("reports") or []:
         for limit in report.get("limits") or []:
@@ -385,8 +392,59 @@ def nearest_window(quota: dict, now_ms: float):
             if start > now_ms:
                 continue
             if best is None or resets_at < best[1]:
-                best = (window.get("id") or "quota", resets_at, start)
+                best = (window.get("id") or "quota", resets_at, start,
+                        (limit.get("amount") or {}).get("usedFraction"))
     return best
+
+
+def history_append(sample: dict):
+    """Best-effort sample append; prunes entries older than 8 days."""
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        rows = []
+        if os.path.exists(HISTORY_FILE):
+            with open(HISTORY_FILE, encoding="utf-8") as fh:
+                for line in fh:
+                    try:
+                        r = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(r, dict) and isinstance(r.get("ts"), (int, float)):
+                        rows.append(r)
+        cutoff = sample["ts"] - HISTORY_MAX_AGE_MS
+        rows = [r for r in rows if r["ts"] >= cutoff]
+        rows.append(sample)
+        tmp = HISTORY_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            for r in rows:
+                fh.write(json.dumps(r, separators=(",", ":")) + "\n")
+        os.replace(tmp, HISTORY_FILE)
+    except OSError:
+        pass  # history is a nice-to-have; never break the report
+
+
+def history_series(win_id, win_start):
+    """Downsampled samples of the current window for the panel sparkline."""
+    rows = []
+    if win_id is None or win_start is None or not os.path.exists(HISTORY_FILE):
+        return []
+    try:
+        with open(HISTORY_FILE, encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(r, dict) and r.get("win") == win_id and r.get("start") == win_start:
+                    rows.append(r)
+    except OSError:
+        return []
+    rows.sort(key=lambda r: r["ts"])
+    if len(rows) > HISTORY_MAX_POINTS:
+        step = (len(rows) - 1) / (HISTORY_MAX_POINTS - 1)
+        rows = [rows[round(i * step)] for i in range(HISTORY_MAX_POINTS)]
+    return [{"ts": int(r["ts"]), "frac": r.get("frac"),
+             "agents": r.get("agents") or {}} for r in rows]
 
 
 def main() -> int:
@@ -401,6 +459,18 @@ def main() -> int:
     if nearest:
         split["agents"] = agent_split(nearest[2])
 
+    sample = {
+        "ts": int(now_ms),
+        "win": nearest[0] if nearest else None,
+        "start": nearest[2] if nearest else None,
+        "frac": nearest[3] if nearest else None,
+        "agents": {a["name"]: a["tokens"] for a in split["agents"]},
+        "req": {a["name"]: a["requests"] for a in split["agents"]},
+    }
+    history_append(sample)
+    history = {"win": nearest[0], "start": nearest[2],
+               "points": history_series(nearest[0], nearest[2])} if nearest else None
+
     print(
         json.dumps(
             {
@@ -409,6 +479,7 @@ def main() -> int:
                 "fetchedAt": now_ms,
                 "windows": quota_windows(quota, now_ms),
                 "split": split,
+                "history": history,
             }
         )
     )

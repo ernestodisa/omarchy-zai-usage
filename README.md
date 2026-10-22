@@ -45,6 +45,13 @@ omarchy plugin remove ernestodisa.zai-usage
 - `python3` (standard library only). No network calls from the plugin itself;
   no API key is read or stored by the widget — omp holds the credentials.
 
+## History (panel)
+
+Every poll appends a sample (timestamp, quota fraction, per-agent tokens) to
+`~/.local/state/ernestodisa.zai-usage/history.jsonl` (XDG state; pruned to 8
+days). The panel draws a stacked sparkline of the current window — which
+harness consumed what, over time — with up to 64 points.
+
 ## Settings
 
 Optional — on the widget entry in `~/.config/omarchy/shell.json`:
@@ -113,6 +120,13 @@ omarchy plugin remove ernestodisa.zai-usage
   cercana a lo que el plan cobra de verdad.
 - `python3` (solo librería estándar). El plugin no hace llamadas de red ni
   lee llaves: las credenciales las guarda omp.
+
+## Historia (panel)
+
+Cada refresco guarda una muestra (timestamp, fracción del quota, tokens por
+agente) en `~/.local/state/ernestodisa.zai-usage/history.jsonl` (estado XDG;
+se poda a 8 días). El panel dibuja una sparkline apilada de la ventana actual
+— qué harness consumió qué a lo largo del tiempo — con hasta 64 puntos.
 
 ## Notas
 

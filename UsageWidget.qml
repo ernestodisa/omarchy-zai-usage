@@ -45,6 +45,35 @@ Panel {
   readonly property var agents: split && split.agents ? split.agents : []
   readonly property bool hasSplit: split && split.window && agents.length > 0
 
+  // History: downsampled cumulative samples of the current quota window.
+  readonly property var history: report && report.ok ? report.history : null
+  readonly property var historyPoints: history && history.points ? history.points.slice(-32) : []
+  readonly property var historyNames: {
+    var totals = {}
+    for (var i = 0; i < historyPoints.length; i++) {
+      var ag = historyPoints[i].agents || {}
+      for (var k in ag) totals[k] = (totals[k] || 0) + ag[k]
+    }
+    return Object.keys(totals).sort(function(a, b) { return totals[b] - totals[a] })
+  }
+  readonly property real historyMax: {
+    var mx = 0
+    for (var i = 0; i < historyPoints.length; i++) {
+      var tot = 0
+      var ag = historyPoints[i].agents || {}
+      for (var k in ag) tot += ag[k]
+      if (tot > mx) mx = tot
+    }
+    return mx
+  }
+  readonly property var agentColors: ["#7aa2f7", "#e0af68", "#9ece6a", "#bb9af7", "#f7768e", "#7dcfff", "#c0caf5", "#ff9e64"]
+
+  function agentColor(name) {
+    var h = 0
+    for (var i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+    return agentColors[h % agentColors.length]
+  }
+
   readonly property color okColor: "#4ade80"
   readonly property color warnColor: "#facc15"
   readonly property color critColor: "#f87171"
@@ -414,6 +443,96 @@ Panel {
               font.family: root.panelFont
               font.pixelSize: Style.font.caption
               wrapMode: Text.WordWrap
+            }
+          }
+
+          // ---------------- history sparkline ----------------
+          Column {
+            width: parent.width
+            spacing: Style.space(6)
+            visible: root.historyPoints.length > 1
+
+            Text {
+              width: parent.width
+              text: root.hasSplit
+                ? "Historia · ventana " + root.split.window + " (acumulado)"
+                : "Historia (acumulado)"
+              color: root.foreground
+              opacity: 0.6
+              font.family: root.panelFont
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+
+            Item {
+              width: parent.width
+              height: 44
+
+              Row {
+                anchors.centerIn: parent
+                spacing: 1
+
+                Repeater {
+                  model: root.historyPoints
+
+                  delegate: Item {
+                    required property var modelData
+                    readonly property var p: modelData
+                    width: 5
+                    height: 44
+
+                    Column {
+                      anchors.bottom: parent.bottom
+                      width: parent.width
+                      height: 44
+                      spacing: 0
+
+                      Repeater {
+                        model: root.historyNames
+
+                        delegate: Rectangle {
+                          required property var modelData
+                          readonly property string n: modelData
+                          readonly property real v: (p.agents && p.agents[n]) ? p.agents[n] : 0
+                          width: parent.width
+                          height: v > 0 && root.historyMax > 0 ? Math.max(2, v / root.historyMax * 42) : 0
+                          color: root.agentColor(n)
+                          visible: height > 0
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
+            Flow {
+              width: parent.width
+              spacing: Style.space(8)
+
+              Repeater {
+                model: root.historyNames
+
+                delegate: Row {
+                  required property var modelData
+                  spacing: 4
+
+                  Rectangle {
+                    width: 8
+                    height: 8
+                    radius: 2
+                    color: root.agentColor(modelData)
+                    anchors.verticalCenter: parent.verticalCenter
+                  }
+                  Text {
+                    text: modelData
+                    color: root.foreground
+                    opacity: 0.75
+                    font.family: root.panelFont
+                    font.pixelSize: Style.font.caption
+                  }
+                }
+              }
             }
           }
 
